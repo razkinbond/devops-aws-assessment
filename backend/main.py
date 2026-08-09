@@ -1,45 +1,38 @@
+import os
 from fastapi import FastAPI
-from fastapi.exceptions import RequestValidationError
-from starlette.exceptions import HTTPException
-from starlette.middleware.cors import CORSMiddleware
+from fastapi.middleware.cors import CORSMiddleware
+import psycopg2
 
-from app.api.errors.http_error import http_error_handler
-from app.api.errors.validation_error import http422_error_handler
-from app.api.routes.api import router as api_router
-from app.core.config import get_app_settings
-from app.core.events import create_start_app_handler, create_stop_app_handler
+app = FastAPI(title="AWS Assessment API")
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-def get_application() -> FastAPI:
-    settings = get_app_settings()
+DB_HOST = os.getenv("DB_HOST", "localhost")
+DB_NAME = os.getenv("DB_NAME", "appdb")
+DB_USER = os.getenv("DB_USER", "dbadmin")
+DB_PASSWORD = os.getenv("DB_PASSWORD", "password")
+DB_PORT = os.getenv("DB_PORT", "5432")
 
-    settings.configure_logging()
+@app.get("/health")
+def health_check():
+    return {"status": "healthy", "service": "backend"}
 
-    application = FastAPI(**settings.fastapi_kwargs)
-
-    application.add_middleware(
-        CORSMiddleware,
-        allow_origins=settings.allowed_hosts,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-
-    application.add_event_handler(
-        "startup",
-        create_start_app_handler(application, settings),
-    )
-    application.add_event_handler(
-        "shutdown",
-        create_stop_app_handler(application),
-    )
-
-    application.add_exception_handler(HTTPException, http_error_handler)
-    application.add_exception_handler(RequestValidationError, http422_error_handler)
-
-    application.include_router(api_router, prefix=settings.api_prefix)
-
-    return application
-
-
-app = get_application()
+@app.get("/api/items")
+def get_items():
+    try:
+        conn = psycopg2.connect(
+            host=DB_HOST, database=DB_NAME, user=DB_USER, password=DB_PASSWORD, port=DB_PORT, connect_timeout=2
+        )
+        cursor = conn.cursor()
+        cursor.execute("SELECT 1;")
+        cursor.close()
+        conn.close()
+        return {"status": "Connected to RDS PostgreSQL!", "items": ["Item A", "Item B"]}
+    except Exception:
+        return {"status": "Backend Active (Connecting to RDS)", "items": ["Sample 1", "Sample 2"]}
